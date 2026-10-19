@@ -42,15 +42,28 @@
   // ---------- Zeitraum ----------
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const dateOfKey = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
   function periodOf(date, offset = 0) {
     const r = data.resetDay;
     let y = date.getFullYear(), m = date.getMonth();
     if (date.getDate() < r) m -= 1;
     m += offset;
-    const start = new Date(y, m, r), end = new Date(y, m + 1, r);   // end = exklusiv
-    return { start, end, key: keyOf(start), days: Math.round((end - start) / DAY) };
+    let start = new Date(y, m, r);
+    const end = new Date(y, m + 1, r);   // end = exklusiv
+    const key = keyOf(start), full = Math.round((end - start) / DAY);
+    // Erster Zeitraum beginnt erst am Tag der Einrichtung → Budget anteilig
+    const since = data.since && dateOfKey(data.since);
+    if (since && since > start && since < end) start = since;
+    return { start, end, key, full, days: Math.round((end - start) / DAY) };
   }
-  const budgetOf = (p) => data.budgets[p.key] ?? data.budget;
+  const budgetOf = (p) => Math.round((data.budgets[p.key] ?? data.budget) * p.days / p.full);
+  // Startdatum festhalten, sobald ein Budget existiert (frühester Eintrag oder heute)
+  function sinceFix() {
+    if (!data.budget || data.since) return;
+    const first = data.entries.reduce((t, e) => Math.min(t, e.t), Date.now());
+    data.since = keyOf(new Date(first));
+    save();
+  }
   const inPeriod = (p) => data.entries.filter((e) => e.t >= +p.start && e.t < +p.end);
   const dayIdx = (p, t) => Math.floor((startOfDay(new Date(t)) - p.start) / DAY + 0.5);   // 0-basiert, sommerzeitfest
 
@@ -144,7 +157,9 @@
     const e = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t, a, c: b.dataset.cat };
     const note = $("note").value.trim();
     if (note) e.n = note;
-    data.entries.push(e); save();
+    data.entries.push(e);
+    if (data.since && t < +dateOfKey(data.since)) data.since = keyOf(new Date(t));   // Nachtrag vor dem Start
+    save();
     $("amount").value = ""; $("note").value = ""; $("cats").classList.remove("ready"); $("amount").blur(); sizeAmount();
     setAgo(0);
     if (navigator.vibrate) navigator.vibrate(12);
@@ -173,7 +188,9 @@
     if (document.activeElement !== $("budgetInput")) $("budgetInput").value = data.budget ? (data.budget / 100).toLocaleString("de-DE") : "";
     $("resetDay").value = String(data.resetDay);
     const last = new Date(s.p.end - DAY);
-    $("periodInfo").textContent = `Aktueller Zeitraum: ${dShort(s.p.start)} – ${dShort(last)} (${s.p.days} Tage). Am ${data.resetDay}. beginnt automatisch ein neuer Zeitraum mit vollem Budget.`;
+    $("periodInfo").textContent = `Aktueller Zeitraum: ${dShort(s.p.start)} – ${dShort(last)} (${s.p.days} Tage)` +
+      (s.p.days < s.p.full ? `, dein erster – deshalb anteilig ${fmt0(s.B)} von ${fmt0(budgetOf({ ...s.p, days: s.p.full }))}.` : ".") +
+      ` Am ${data.resetDay}. beginnt automatisch ein neuer Zeitraum mit vollem Budget.`;
 
     const k = [
       ["Budget", fmt0(s.B)],
@@ -240,6 +257,7 @@
     const c = parseAmount($("budgetInput").value);
     if (!c) { toast("Bitte einen Betrag eingeben, z. B. 600"); render(); return; }
     data.budget = c;
+    sinceFix();
     data.budgets[periodOf(new Date()).key] = c;   // gilt ab dem laufenden Zeitraum
     save(); render(); toast(`Budget: ${fmt0(c)} pro Monat`);
   });
@@ -371,6 +389,7 @@
       if (!d || !Array.isArray(d.entries) || !d.entries.every((e) => e && typeof e.t === "number" && typeof e.a === "number" && e.id)) throw new Error();
       if (!confirm(`Sicherung mit ${d.entries.length} Ausgaben laden? Die aktuellen Daten werden ersetzt.`)) return;
       data = { budget: 0, resetDay: 25, budgets: {}, ...d };
+      sinceFix();
       save(); render(); toast("Sicherung geladen ✓");
     } catch (e) { toast("Diese Datei ist keine gültige Budget-Sicherung."); }
   });
@@ -423,6 +442,7 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) render(); });
   setInterval(render, 60000);
 
+  sinceFix();
   if (!data.budget && !isCockpit()) location.replace("#cockpit");
   route();
   if (!data.budget) setTimeout(() => $("budgetInput").focus(), 200);
