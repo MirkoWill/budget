@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Freies Monatsbudget: Ausgaben schnell erfassen, Rest pro Tag im Blick.">
+  <title>Budget</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="budget.css?v=1">
+</head>
+<body>
+  <!-- Startseite: Überblick + schnelle Eingabe -->
+  <main class="wrap" id="home">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Budget</p>
+        <p class="period" id="period"></p>
+      </div>
+      <button class="iconbtn" id="openCockpit" type="button" aria-label="Cockpit öffnen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V11M10 19V5M16 19v-6M22 19H2"/></svg>
+      </button>
+    </header>
+
+    <section class="hero" aria-label="Restbudget">
+      <p class="label">Verfügbar</p>
+      <p class="big" id="remaining">–</p>
+      <p class="sub" id="ofBudget"></p>
+      <div class="meter" aria-hidden="true"><i id="meterFill"></i><b id="meterPlan"></b></div>
+      <p class="pace" id="pace"></p>
+    </section>
+
+    <section class="tiles" aria-label="Pro Tag">
+      <div class="tile"><p class="label">Heute noch</p><p class="val" id="today">–</p><p class="hint" id="todayHint"></p></div>
+      <div class="tile"><p class="label">Pro Tag übrig</p><p class="val" id="perDay">–</p><p class="hint" id="perDayHint"></p></div>
+    </section>
+
+    <section class="entry" aria-label="Ausgabe erfassen">
+      <label class="amount" for="amount">
+        <input id="amount" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,00" aria-label="Betrag in Euro">
+        <span>€</span>
+      </label>
+      <div class="cats" id="cats"></div>
+      <input class="note" id="note" type="text" maxlength="60" autocomplete="off" placeholder="Notiz (optional)" aria-label="Notiz">
+      <div class="when" id="when" role="group" aria-label="Datum">
+        <button type="button" data-ago="0" aria-pressed="true">Heute</button>
+        <button type="button" data-ago="1" aria-pressed="false">Gestern</button>
+      </div>
+    </section>
+
+    <section class="recent" aria-labelledby="recentTitle">
+      <h2 id="recentTitle">Zuletzt</h2>
+      <ul class="list" id="recent"></ul>
+    </section>
+  </main>
+
+  <!-- Cockpit: Eckdaten, Auswertung, Steuerung -->
+  <main class="wrap" id="cockpit" hidden>
+    <header class="top">
+      <button class="back" id="closeCockpit" type="button">‹ Zurück</button>
+      <p class="eyebrow">Cockpit</p>
+    </header>
+
+    <section class="card">
+      <h2>Eckdaten</h2>
+      <div class="form">
+        <label>Monatsbudget (ohne Fixkosten)
+          <span class="field"><input id="budgetInput" type="text" inputmode="decimal" autocomplete="off"><span>€</span></span>
+        </label>
+        <label>Neuer Zeitraum ab dem
+          <span class="field"><select id="resetDay"></select><span>. des Monats</span></span>
+        </label>
+      </div>
+      <p class="muted" id="periodInfo"></p>
+    </section>
+
+    <section class="card">
+      <h2>Stand</h2>
+      <dl class="kpis" id="kpis"></dl>
+      <p class="trend" id="trend"></p>
+    </section>
+
+    <section class="card">
+      <h2>Verlauf <span class="muted">ausgegeben vs. Plan</span></h2>
+      <div class="chart" id="burn"></div>
+      <p class="legend"><span class="sw sw--line"></span>Ausgegeben <span class="sw sw--plan"></span>Plan (gleichmäßig)</p>
+    </section>
+
+    <section class="card">
+      <h2>Pro Tag <span class="muted">Linie = Tagesbudget</span></h2>
+      <div class="chart" id="daily"></div>
+    </section>
+
+    <section class="card">
+      <h2>Kategorien</h2>
+      <ul class="bars" id="catBars"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Vormonate</h2>
+      <ul class="bars" id="history"></ul>
+    </section>
+
+    <details class="card">
+      <summary><h2>Alle Ausgaben <span class="muted" id="countInfo"></span></h2></summary>
+      <ul class="list" id="allEntries"></ul>
+    </details>
+
+    <section class="card">
+      <h2>Daten</h2>
+      <p class="muted">Alles bleibt nur auf diesem Gerät. Sicherung gelegentlich verschicken oder speichern.</p>
+      <div class="btnrow">
+        <button class="btn" id="exportBtn" type="button">Sicherung senden</button>
+        <button class="btn" id="importBtn" type="button">Sicherung laden</button>
+      </div>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+      <button class="btn btn--danger" id="wipeBtn" type="button">Alle Daten löschen</button>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button id="toastUndo" type="button">Rückgängig</button></div>
+  <div class="tip" id="tip" hidden></div>
+
+  <script src="budget.js?v=1"></script>
+</body>
+</html>
