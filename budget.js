@@ -65,6 +65,8 @@
     save();
   }
   const inPeriod = (p) => data.entries.filter((e) => e.t >= +p.start && e.t < +p.end);
+  const dayDate = (p, i) => new Date(p.start.getFullYear(), p.start.getMonth(), p.start.getDate() + i);
+  const weekLabel = (p, w) => `${dShort(dayDate(p, w.from))} – ${dShort(dayDate(p, w.from + w.len - 1))}`;
   const dayIdx = (p, t) => Math.floor((startOfDay(new Date(t)) - p.start) / DAY + 0.5);   // 0-basiert, sommerzeitfest
 
   function stats(now = new Date()) {
@@ -79,7 +81,21 @@
     const spentToday = daily[today];
     const daysLeft = p.days - today;               // inkl. heute
     const remaining = B - spent;
-    const todayShare = (B - (spent - spentToday)) / daysLeft;
+    // Wochen (Mo–So, am Zeitraumrand gekürzt): Wochenbudget = Rest zu Wochenbeginn anteilig auf die Tage der Woche.
+    // Mehr- oder Minderausgaben einer Woche verschieben so die folgenden Wochen, nicht die laufende.
+    const sum = (a, b) => daily.slice(a, b).reduce((t, v) => t + v, 0);
+    const weeks = [];
+    for (let i = 0; i < p.days;) {
+      const len = Math.min(7 - (dayDate(p, i).getDay() + 6) % 7, p.days - i);
+      const budget = Math.max(0, B - sum(0, i)) * len / (p.days - i);
+      weeks.push({ from: i, len, budget, spent: sum(i, i + len) });
+      i += len;
+    }
+    const week = weeks.find((w) => today < w.from + w.len);
+    const weekDaysLeft = week.from + week.len - today;          // inkl. heute
+    const weekLeft = week.budget - week.spent;
+    // Tageswert aus der Woche: was zu Tagesbeginn von der Woche übrig war, verteilt auf die restlichen Wochentage
+    const todayShare = Math.max(0, week.budget - sum(week.from, today)) / weekDaysLeft;
     const planToDate = B * (today + 1) / p.days;
     const n7 = Math.min(7, today + 1);
     const avg7 = daily.slice(today + 1 - n7, today + 1).reduce((s, v) => s + v, 0) / n7;
@@ -87,7 +103,7 @@
     const byCat = {};
     for (const e of list) byCat[e.c] = (byCat[e.c] || 0) + e.a;
     return { p, B, list, today, daily, spent, spentToday, daysLeft, remaining, todayShare, todayLeft: todayShare - spentToday,
-      perDay: remaining / daysLeft, planToDate, avg7, n7, projection, byCat };
+      perDay: remaining / daysLeft, weeks, week, weekLeft, weekDaysLeft, weekPerDay: weekLeft / weekDaysLeft, planToDate, avg7, n7, projection, byCat };
   }
 
   // ---------- Startseite ----------
@@ -95,10 +111,12 @@
   function renderHome(s) {
     const last = new Date(s.p.end - DAY);
     $("period").textContent = `${dShort(s.p.start)} – ${dShort(last)} · Tag ${s.today + 1} von ${s.p.days}`;
+    $("weekTitle").textContent = `Woche · ${weekLabel(s.p, s.week)}`;
     if (!s.B) {
       $("remaining").textContent = "–";
       $("ofBudget").textContent = "Noch kein Budget festgelegt – im Cockpit eintragen.";
       $("pace").textContent = ""; $("today").textContent = "–"; $("perDay").textContent = "–";
+      $("weekLeft").textContent = "–"; $("weekSub").textContent = ""; $("weekFill").style.width = "0"; $("weekPlan").style.left = "0";
       $("todayHint").textContent = ""; $("perDayHint").textContent = "";
       $("meterFill").style.width = "0"; $("meterPlan").style.left = "0";
     } else {
@@ -116,8 +134,15 @@
       $("today").textContent = fmt(s.todayLeft);
       $("today").classList.toggle("neg", s.todayLeft < 0);
       $("todayHint").textContent = `Tagesanteil ${fmt(Math.max(0, s.todayShare))}`;
-      $("perDay").textContent = fmt(Math.max(0, s.perDay));
-      $("perDayHint").textContent = s.daysLeft === 1 ? "letzter Tag" : `für ${s.daysLeft} Tage inkl. heute`;
+      $("perDay").textContent = fmt(Math.max(0, s.weekPerDay));
+      $("perDayHint").textContent = s.weekDaysLeft === 1 ? "letzter Tag der Woche" : `für ${s.weekDaysLeft} Tage bis ${dWeek(dayDate(s.p, s.week.from + s.week.len - 1)).split(",")[0]}`;
+      $("weekLeft").textContent = fmt(s.weekLeft);
+      $("weekLeft").classList.toggle("neg", s.weekLeft < 0);
+      $("weekSub").textContent = `von ${fmt(s.week.budget)} · ${fmt(s.week.spent)} ausgegeben`;
+      const wf = $("weekFill");
+      wf.style.width = `${s.week.budget ? Math.min(100, (s.week.spent / s.week.budget) * 100) : 100}%`;
+      wf.classList.toggle("over", s.week.spent > s.week.budget);
+      $("weekPlan").style.left = `${((s.today - s.week.from + 1) / s.week.len) * 100}%`;
     }
     const recent = [...s.list].sort((a, b) => b.t - a.t).slice(0, 5);
     $("recent").innerHTML = recent.length ? recent.map(rowHtml).join("") : `<li class="empty">Noch keine Ausgaben in diesem Zeitraum.</li>`;
@@ -197,6 +222,7 @@
       ["Ausgegeben", fmt(s.spent)],
       ["Verfügbar", fmt(s.remaining), s.remaining < 0],
       ["Pro Tag übrig", fmt(Math.max(0, s.perDay))],
+      ["Wochenbudget", fmt(s.week.budget)],
       ["Tagesbudget", fmt(s.B / s.p.days)],
       ["Ø pro Tag bisher", fmt(s.spent / (s.today + 1))],
       [`Ø letzte ${s.n7} Tage`, fmt(s.avg7)],
@@ -222,6 +248,14 @@
     $("catBars").innerHTML = s.spent ? cats.map((c) => `<li><span class="name">${c.label}</span>
       <span class="amt">${fmt(c.v)}<small>${Math.round((c.v / s.spent) * 100)} %</small></span>
       <span class="track"><i data-w="${(c.v / maxC) * 100}"></i></span></li>`).join("") : `<li class="empty">Noch keine Ausgaben.</li>`;
+
+    $("weekBars").innerHTML = s.B ? s.weeks.map((w) => {
+      const now = w === s.week, future = w.from > s.today, d = w.budget - w.spent;
+      const note = future ? "geplant" : now ? (d >= 0 ? `noch ${fmt0(d)}` : `${fmt0(-d)} drüber`) : (d >= 0 ? `${fmt0(d)} übrig` : `${fmt0(-d)} drüber`);
+      return `<li${future ? ' class="future"' : ""}><span class="name">${now ? "<b>" : ""}${esc(weekLabel(s.p, w))}${now ? "</b>" : ""}</span>
+        <span class="amt">${future ? fmt0(w.budget) : `${fmt0(w.spent)} / ${fmt0(w.budget)}`}<small>${note}</small></span>
+        <span class="track"><i class="${w.spent > w.budget ? "over" : ""}" data-w="${w.budget ? Math.min(100, (w.spent / w.budget) * 100) : w.spent ? 100 : 0}"></i></span></li>`;
+    }).join("") : `<li class="empty">Lege oben dein Monatsbudget fest.</li>`;
 
     const hist = [];
     for (let i = -1; i >= -12; i--) {

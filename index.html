@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="budget.css?v=1">
+  <link rel="stylesheet" href="budget.css?v=2">
 </head>
 <body>
   <!-- Startseite: Überblick + schnelle Eingabe -->
@@ -35,9 +35,15 @@
       <p class="pace" id="pace"></p>
     </section>
 
+    <section class="weekcard" aria-label="Wochenbudget">
+      <p class="label" id="weekTitle">Woche</p>
+      <div class="weekrow"><p class="val" id="weekLeft">–</p><p class="hint" id="weekSub"></p></div>
+      <div class="meter meter--thin" aria-hidden="true"><i id="weekFill"></i><b id="weekPlan"></b></div>
+    </section>
+
     <section class="tiles" aria-label="Pro Tag">
       <div class="tile"><p class="label">Heute noch</p><p class="val" id="today">–</p><p class="hint" id="todayHint"></p></div>
-      <div class="tile"><p class="label">Pro Tag übrig</p><p class="val" id="perDay">–</p><p class="hint" id="perDayHint"></p></div>
+      <div class="tile"><p class="label">Pro Tag (Woche)</p><p class="val" id="perDay">–</p><p class="hint" id="perDayHint"></p></div>
     </section>
 
     <section class="entry" aria-label="Ausgabe erfassen">
@@ -97,6 +103,11 @@
     </section>
 
     <section class="card">
+      <h2>Wochen <span class="muted">Budget passt sich dem Monatsrest an</span></h2>
+      <ul class="bars" id="weekBars"></ul>
+    </section>
+
+    <section class="card">
       <h2>Kategorien</h2>
       <ul class="bars" id="catBars"></ul>
     </section>
@@ -126,6 +137,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button id="toastUndo" type="button">Rückgängig</button></div>
   <div class="tip" id="tip" hidden></div>
 
-  <script src="budget.js?v=2"></script>
+  <script src="budget.js?v=3"></script>
 </body>
 </html>

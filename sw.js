@@ -1,6 +1,6 @@
 // Offline-Fähigkeit: alle Dateien liegen im Speicher; bei neuer Version CACHE hochzählen.
-const CACHE = "budget-v2";
-const FILES = ["./", "./index.html", "./budget.css?v=1", "./budget.js?v=2", "./manifest.webmanifest",
+const CACHE = "budget-v3";
+const FILES = ["./", "./index.html", "./budget.css?v=2", "./budget.js?v=3", "./manifest.webmanifest",
   "./icon.svg", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
