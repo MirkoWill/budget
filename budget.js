@@ -1,6 +1,6 @@
 "use strict";
 // Budget: freies Monatsbudget (ohne Fixkosten). Zeitraum läuft vom Stichtag (Standard 25.) bis zum Tag davor.
-// Alles liegt nur in localStorage; Beträge in Cent.
+// Daten in localStorage (Beträge in Cent); optional gemeinsamer Abgleich über eine Google-Tabelle (sync/Code.gs).
 (() => {
   const KEY = "budget-v1";
   const DAY = 86400000;
@@ -14,6 +14,8 @@
     { id: "sonstiges", label: "Sonstiges" },
   ];
   const catLabel = (id) => (CATS.find((c) => c.id === id) || { label: id }).label;
+  const catId = (v) => (CATS.find((c) => c.id === v || c.label === v) || { id: "sonstiges" }).id;
+  const SETTINGS = ["budget", "resetDay", "since", "budgets"];   // gemeinsame Einstellungen
 
   const $ = (id) => document.getElementById(id);
   const euro = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
@@ -25,19 +27,28 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
   // ---------- Speicher ----------
+  // pending: noch nicht übertragene Änderungen (id → Eintrag mit u = Zeitstempel, x = gelöscht)
+  // su/sDirty: Zeitstempel und Übertragungsbedarf der Einstellungen
+  const fresh = () => ({ budget: 0, resetDay: 25, budgets: {}, entries: [], pending: {}, su: 0 });
   function load() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY));
-      if (d && Array.isArray(d.entries)) return { budget: 0, resetDay: 25, budgets: {}, ...d };
+      if (d && Array.isArray(d.entries)) return { ...fresh(), ...d };
     } catch (e) { /* leer starten */ }
-    return { budget: 0, resetDay: 25, budgets: {}, entries: [] };
+    return fresh();
   }
   let data = load();
-  function save() {
+  function store() {
     const cut = Date.now() - KEEP_DAYS * DAY;
     data.entries = data.entries.filter((e) => e.t >= cut);
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { toast("Speichern fehlgeschlagen – Speicher voll?"); }
   }
+  function save() { store(); scheduleSync(); }
+  function touchSettings() { data.su = Date.now(); data.sDirty = true; }
+  // Ausgaben ändern: lokal sofort, für den Abgleich vormerken
+  function mark(e, gone) { if (data.sync) data.pending[e.id] = { ...e, u: Date.now(), ...(gone ? { x: 1 } : {}) }; }
+  function putEntry(e) { data.entries = data.entries.filter((x) => x.id !== e.id).concat(e); mark(e, false); }
+  function dropEntry(e) { data.entries = data.entries.filter((x) => x.id !== e.id); mark(e, true); }
 
   // ---------- Zeitraum ----------
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -62,6 +73,7 @@
     if (!data.budget || data.since) return;
     const first = data.entries.reduce((t, e) => Math.min(t, e.t), Date.now());
     data.since = keyOf(new Date(first));
+    touchSettings();
     save();
   }
   const inPeriod = (p) => data.entries.filter((e) => e.t >= +p.start && e.t < +p.end);
@@ -71,7 +83,7 @@
 
   function stats(now = new Date()) {
     const p = periodOf(now);
-    if (data.budget > 0 && data.budgets[p.key] == null) { data.budgets[p.key] = data.budget; save(); }
+    if (data.budget > 0 && data.budgets[p.key] == null) { data.budgets[p.key] = data.budget; touchSettings(); save(); }
     const B = budgetOf(p);
     const list = inPeriod(p);
     const today = dayIdx(p, +now);                 // 0-basiert
@@ -151,7 +163,8 @@
     const d = new Date(e.t);
     const when = startOfDay(d).getTime() === startOfDay(new Date()).getTime()
       ? d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : dWeek(d);
-    return `<li><span class="what"><b>${esc(catLabel(e.c))}</b><small>${esc(when)}${e.n ? " · " + esc(e.n) : ""}</small></span>
+    const who = data.sync && e.w ? `${e.w} · ` : "";
+    return `<li><span class="what"><b>${esc(catLabel(e.c))}</b><small>${esc(who + when)}${e.n ? " · " + esc(e.n) : ""}</small></span>
       <span class="amt">${fmt(e.a)}</span><button class="del" type="button" data-del="${esc(e.id)}" aria-label="Löschen">×</button></li>`;
   }
 
@@ -182,14 +195,15 @@
     const e = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t, a, c: b.dataset.cat };
     const note = $("note").value.trim();
     if (note) e.n = note;
-    data.entries.push(e);
-    if (data.since && t < +dateOfKey(data.since)) data.since = keyOf(new Date(t));   // Nachtrag vor dem Start
+    if (data.sync && data.sync.me) e.w = data.sync.me;
+    putEntry(e);
+    if (data.since && t < +dateOfKey(data.since)) { data.since = keyOf(new Date(t)); touchSettings(); }   // Nachtrag vor dem Start
     save();
     $("amount").value = ""; $("note").value = ""; $("cats").classList.remove("ready"); $("amount").blur(); sizeAmount();
     setAgo(0);
     if (navigator.vibrate) navigator.vibrate(12);
     render();
-    toast(`${fmt(a)} · ${catLabel(e.c)} erfasst`, () => { data.entries = data.entries.filter((x) => x.id !== e.id); save(); render(); });
+    toast(`${fmt(a)} · ${catLabel(e.c)} erfasst`, () => { dropEntry(e); save(); render(); });
   });
   function setAgo(n) {
     ago = n;
@@ -203,8 +217,8 @@
     if (!b) return;
     const e = data.entries.find((x) => x.id === b.dataset.del);
     if (!e) return;
-    data.entries = data.entries.filter((x) => x !== e); save(); render();
-    toast(`${fmt(e.a)} · ${catLabel(e.c)} gelöscht`, () => { data.entries.push(e); save(); render(); });
+    dropEntry(e); save(); render();
+    toast(`${fmt(e.a)} · ${catLabel(e.c)} gelöscht`, () => { putEntry(e); save(); render(); });
   });
 
   // ---------- Cockpit ----------
@@ -269,6 +283,15 @@
         <span class="amt">${fmt0(sp)}<small>${B ? (d >= 0 ? `${fmt0(d)} übrig` : `${fmt0(-d)} drüber`) : ""}</small></span>
         <span class="track"><i class="${B && sp > B ? "over" : ""}" data-w="${B ? Math.min(100, (sp / B) * 100) : 100}"></i></span></li>`;
     }).join("") : `<li class="empty">Noch keine abgeschlossenen Zeiträume.</li>`;
+    const who = {};
+    for (const e of s.list) who[e.w || "–"] = (who[e.w || "–"] || 0) + e.a;
+    const whoList = Object.entries(who).sort((a, b) => b[1] - a[1]);
+    $("whoCard").hidden = !data.sync || !whoList.length;
+    $("whoBars").innerHTML = whoList.map(([n, v]) => `<li><span class="name">${esc(n)}</span>
+      <span class="amt">${fmt(v)}<small>${Math.round((v / s.spent) * 100)} %</small></span>
+      <span class="track"><i data-w="${(v / whoList[0][1]) * 100}"></i></span></li>`).join("");
+    renderSync();
+
     // Breiten per CSSOM setzen – Inline-style-Attribute verbietet die CSP
     for (const i of document.querySelectorAll("#cockpit [data-w]")) i.style.width = `${i.dataset.w}%`;
 
@@ -291,6 +314,7 @@
     const c = parseAmount($("budgetInput").value);
     if (!c) { toast("Bitte einen Betrag eingeben, z. B. 600"); render(); return; }
     data.budget = c;
+    touchSettings();
     sinceFix();
     data.budgets[periodOf(new Date()).key] = c;   // gilt ab dem laufenden Zeitraum
     save(); render(); toast(`Budget: ${fmt0(c)} pro Monat`);
@@ -298,7 +322,7 @@
   $("budgetInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("budgetInput").blur(); });
   $("resetDay").addEventListener("change", () => {
     data.resetDay = Math.min(28, Math.max(1, +$("resetDay").value || 25));
-    save(); render();
+    touchSettings(); save(); render();
   });
 
   // ---------- Diagramme (SVG) ----------
@@ -394,7 +418,7 @@
   // ---------- Sicherung ----------
   async function exportData() {
     const name = `budget-${new Date().toISOString().slice(0, 10)}.json`;
-    const json = JSON.stringify(data);
+    const json = JSON.stringify({ ...data, sync: undefined, pending: undefined });   // ohne Zugangsschlüssel
     try {
       const file = new File([json], name, { type: "application/json" });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -422,17 +446,135 @@
       const d = JSON.parse(await f.text());
       if (!d || !Array.isArray(d.entries) || !d.entries.every((e) => e && typeof e.t === "number" && typeof e.a === "number" && e.id)) throw new Error();
       if (!confirm(`Sicherung mit ${d.entries.length} Ausgaben laden? Die aktuellen Daten werden ersetzt.`)) return;
-      data = { budget: 0, resetDay: 25, budgets: {}, ...d };
+      data = { ...fresh(), ...d, sync: data.sync, pending: {} };
+      for (const e of data.entries) mark(e, false);
+      touchSettings();
       sinceFix();
       save(); render(); toast("Sicherung geladen ✓");
     } catch (e) { toast("Diese Datei ist keine gültige Budget-Sicherung."); }
   });
   $("wipeBtn").addEventListener("click", () => {
-    if (!confirm("Wirklich alle Ausgaben und Einstellungen löschen?")) return;
+    const shared = data.sync ? " auf diesem Gerät (die gemeinsame Tabelle bleibt erhalten, die Verbindung wird getrennt)" : "";
+    if (!confirm(`Wirklich alle Ausgaben und Einstellungen${shared} löschen?`)) return;
     if (!confirm("Ganz sicher? Das lässt sich nicht rückgängig machen.")) return;
-    data = { budget: 0, resetDay: 25, budgets: {}, entries: [] };
+    data = fresh();
     save(); render(); toast("Alle Daten gelöscht");
   });
+
+  // ---------- Gemeinsam nutzen (Google-Tabelle) ----------
+  let syncTimer, syncing = false, syncAgain = false;
+  function scheduleSync() {
+    if (!data.sync) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(sync, 800);
+  }
+  async function sync() {
+    const cfg = data.sync;
+    if (!cfg) return;
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    clearTimeout(syncTimer);
+    const put = Object.values(data.pending);
+    const su = data.su;
+    const body = { key: cfg.key, put: put.map((p) => ({ ...p, c: catLabel(p.c) })) };
+    if (cfg.init) body.init = true;
+    if (data.sDirty) { body.settings = Object.fromEntries(SETTINGS.map((k) => [k, data[k]])); body.su = su; }
+    try {
+      const res = await fetch(cfg.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+      const r = await res.json();
+      if (r.error) throw new Error(r.error);
+      if (data.sync === cfg) {
+        // Übertragenes abhaken, außer es wurde währenddessen erneut geändert
+        for (const x of put) if (data.pending[x.id] && data.pending[x.id].u === x.u) delete data.pending[x.id];
+        if (body.settings && data.su === su) data.sDirty = false;
+        if (!data.sDirty && r.settings && r.su > (data.su || 0)) {
+          for (const k of SETTINGS) if (r.settings[k] != null) data[k] = r.settings[k];
+          data.su = r.su;
+        }
+        // Stand der Tabelle + eigene, noch offene Änderungen
+        const all = new Map(r.entries.map((e) => [e.id, { id: e.id, t: e.t, a: e.a, c: catId(e.c), ...(e.n ? { n: e.n } : {}), ...(e.w ? { w: e.w } : {}) }]));
+        for (const p of Object.values(data.pending)) {
+          if (p.x) all.delete(p.id);
+          else { const { u, ...e } = p; all.set(p.id, e); }
+        }
+        data.entries = [...all.values()];
+        delete cfg.init;
+        cfg.last = Date.now();
+        cfg.err = "";
+      }
+    } catch (e) {
+      cfg.err = e.message === "key" ? "key" : "offline";
+    } finally {
+      syncing = false;
+    }
+    store();
+    render();
+    if (syncAgain) { syncAgain = false; sync(); }
+  }
+  function syncText() {
+    const cfg = data.sync;
+    if (!cfg) return "";
+    const open = Object.keys(data.pending).length + (data.sDirty ? 1 : 0);
+    if (cfg.err === "key") return "Gemeinsam · Zugang abgelehnt – Verbindung im Cockpit prüfen";
+    if (cfg.err) return `Gemeinsam · offline${open ? ` · ${open} Änderung${open > 1 ? "en" : ""} warten` : ""}`;
+    if (!cfg.last) return "Gemeinsam · verbinde …";
+    return `Gemeinsam · abgeglichen ${new Date(cfg.last).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  function renderSync() {
+    const on = !!data.sync;
+    $("syncSetup").hidden = on;
+    $("syncActive").hidden = !on;
+    if (on) $("syncInfo").textContent = `${syncText()}${data.sync.me ? ` · du bist „${data.sync.me}“` : ""}.`;
+  }
+  const b64 = (str) => btoa(unescape(encodeURIComponent(str)));
+  const unb64 = (str) => decodeURIComponent(escape(atob(str)));
+  function startSync(cfg) {
+    data.sync = cfg;
+    data.pending = {};
+    // eigene bisherigen Einträge kommen in den gemeinsamen Topf
+    for (const e of data.entries) { if (!e.w && cfg.me) e.w = cfg.me; mark(e, false); }
+  }
+  $("syncConnect").addEventListener("click", () => {
+    const url = $("syncUrl").value.trim();
+    if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) { toast("Bitte die Web-App-URL (…/exec) aus Apps Script einfügen."); return; }
+    const key = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, "0")).join("");
+    startSync({ url, key, me: $("syncMe").value.trim(), init: true });
+    touchSettings();
+    store(); render(); sync();
+  });
+  $("syncInvite").addEventListener("click", async () => {
+    const link = `${location.origin}${location.pathname}#join=${b64(JSON.stringify({ u: data.sync.url, k: data.sync.key, n: $("inviteName").value.trim() }))}`;
+    const text = "Unser gemeinsames Budget – Link öffnen, dann „Zum Startbildschirm hinzufügen“:";
+    try {
+      if (navigator.share) { await navigator.share({ title: "Budget", text, url: link }); return; }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+    try { await navigator.clipboard.writeText(`${text} ${link}`); toast("Einladungslink kopiert ✓"); }
+    catch (e) { prompt("Diesen Link weitergeben:", link); }
+  });
+  $("syncNow").addEventListener("click", () => { sync(); toast("Gleiche ab …"); });
+  $("syncDisconnect").addEventListener("click", () => {
+    if (!confirm("Verbindung trennen? Die Daten bleiben in der Tabelle und auf diesem Gerät.")) return;
+    data.sync = null; data.pending = {}; data.sDirty = false;
+    store(); render();
+  });
+  // Einladungslink #join=… übernehmen
+  function joinFromHash() {
+    const m = location.hash.match(/^#join=(.+)$/);
+    if (!m) return;
+    history.replaceState(null, "", location.pathname + location.search);
+    try {
+      const j = JSON.parse(unb64(decodeURIComponent(m[1])));
+      if (!j.u || !j.k) throw new Error();
+      if (data.sync && data.sync.key === j.k) return;
+      const me = (prompt("Dein Name (steht bei deinen Einträgen):", j.n || "") ?? j.n ?? "").trim();
+      startSync({ url: j.u, key: j.k, me });
+      data.su = 0; data.sDirty = false;   // Budget und Stichtag kommen aus der Tabelle
+      store();
+      toast("Mit dem gemeinsamen Budget verbunden ✓");
+    } catch (e) { toast("Der Einladungslink ist ungültig."); }
+  }
 
   // ---------- Toast ----------
   let toastTimer, undoFn;
@@ -454,6 +596,8 @@
   function render() {
     const s = stats();
     renderHome(s);
+    $("syncState").textContent = syncText();
+    $("syncState").hidden = !data.sync;
     if (isCockpit()) renderCockpit(s);
   }
   function route() {
@@ -473,13 +617,17 @@
   window.addEventListener("hashchange", route);
   window.addEventListener("resize", () => { if (isCockpit()) render(); });
   // Neuer Tag/Zeitraum, während die App offen bleibt
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) render(); });
-  setInterval(render, 60000);
+  // Neue Einträge des anderen holen: beim Öffnen, bei Netz und jede Minute
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); sync(); } });
+  window.addEventListener("online", sync);
+  setInterval(() => { render(); if (!document.hidden) sync(); }, 60000);
 
+  joinFromHash();
   sinceFix();
-  if (!data.budget && !isCockpit()) location.replace("#cockpit");
+  if (!data.budget && !data.sync && !isCockpit()) location.replace("#cockpit");
   route();
-  if (!data.budget) setTimeout(() => $("budgetInput").focus(), 200);
+  if (!data.budget && !data.sync) setTimeout(() => $("budgetInput").focus(), 200);
+  sync();
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();

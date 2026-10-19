@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'none'">
   <meta name="theme-color" content="#0f1115">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="budget.css?v=2">
+  <link rel="stylesheet" href="budget.css?v=3">
 </head>
 <body>
   <!-- Startseite: Überblick + schnelle Eingabe -->
@@ -21,6 +21,7 @@
       <div>
         <p class="eyebrow">Budget</p>
         <p class="period" id="period"></p>
+        <p class="syncstate" id="syncState" hidden></p>
       </div>
       <button class="iconbtn" id="openCockpit" type="button" aria-label="Cockpit öffnen">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V11M10 19V5M16 19v-6M22 19H2"/></svg>
@@ -112,6 +113,11 @@
       <ul class="bars" id="catBars"></ul>
     </section>
 
+    <section class="card" id="whoCard" hidden>
+      <h2>Wer</h2>
+      <ul class="bars" id="whoBars"></ul>
+    </section>
+
     <section class="card">
       <h2>Vormonate</h2>
       <ul class="bars" id="history"></ul>
@@ -121,6 +127,36 @@
       <summary><h2>Alle Ausgaben <span class="muted" id="countInfo"></span></h2></summary>
       <ul class="list" id="allEntries"></ul>
     </details>
+
+    <section class="card">
+      <h2>Gemeinsam nutzen</h2>
+      <div id="syncSetup">
+        <p class="muted">Mit einer Google-Tabelle als gemeinsamem Speicher erfasst ihr beide in denselben Topf.
+          <a href="https://github.com/MirkoWill/budget#gemeinsam-nutzen" target="_blank" rel="noopener">Anleitung zur Einrichtung</a></p>
+        <div class="form">
+          <label>Web-App-URL des Skripts
+            <span class="field"><input id="syncUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></span>
+          </label>
+          <label>Dein Name
+            <span class="field"><input id="syncMe" type="text" maxlength="20" autocomplete="off" placeholder="z. B. Mirko"></span>
+          </label>
+        </div>
+        <button class="btn" id="syncConnect" type="button">Verbinden</button>
+      </div>
+      <div id="syncActive" hidden>
+        <p class="muted" id="syncInfo"></p>
+        <div class="form">
+          <label>Einladen
+            <span class="field"><input id="inviteName" type="text" maxlength="20" autocomplete="off" placeholder="Name, z. B. Tetiana"></span>
+          </label>
+        </div>
+        <div class="btnrow">
+          <button class="btn" id="syncInvite" type="button">Einladungslink senden</button>
+          <button class="btn" id="syncNow" type="button">Jetzt abgleichen</button>
+        </div>
+        <button class="btn btn--danger" id="syncDisconnect" type="button">Verbindung trennen</button>
+      </div>
+    </section>
 
     <section class="card">
       <h2>Daten</h2>
@@ -137,6 +173,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button id="toastUndo" type="button">Rückgängig</button></div>
   <div class="tip" id="tip" hidden></div>
 
-  <script src="budget.js?v=3"></script>
+  <script src="budget.js?v=4"></script>
 </body>
 </html>
