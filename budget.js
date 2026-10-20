@@ -480,9 +480,14 @@
     if (cfg.init) body.init = true;
     if (data.sDirty) { body.settings = Object.fromEntries(SETTINGS.map((k) => [k, data[k]])); body.su = su; }
     try {
-      const res = await fetch(cfg.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
-      const r = await res.json();
-      if (r.error) throw new Error(r.error);
+      // Fehler genau benennen, damit die Einrichtung prüfbar ist
+      let res, r;
+      try {
+        res = await fetch(cfg.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+      } catch (e) { throw new Error(navigator.onLine && !cfg.last ? "reach" : "offline"); }   // nach erstem Erfolg: Funkloch
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      try { r = JSON.parse(await res.text()); } catch (e) { throw new Error("html"); }
+      if (r.error) throw new Error(r.error === "key" ? "key" : `script: ${r.error}`);
       if (data.sync === cfg) {
         // Übertragenes abhaken, außer es wurde währenddessen erneut geändert
         for (const x of put) if (data.pending[x.id] && data.pending[x.id].u === x.u) delete data.pending[x.id];
@@ -503,7 +508,7 @@
         cfg.err = "";
       }
     } catch (e) {
-      cfg.err = e.message === "key" ? "key" : "offline";
+      cfg.err = e.message || "offline";
     } finally {
       syncing = false;
     }
@@ -515,9 +520,14 @@
     const cfg = data.sync;
     if (!cfg) return "";
     const open = Object.keys(data.pending).length + (data.sDirty ? 1 : 0);
-    if (cfg.err === "key") return "Gemeinsam · Zugang abgelehnt – Verbindung im Cockpit prüfen";
-    if (cfg.err) return `Gemeinsam · offline${open ? ` · ${open} Änderung${open > 1 ? "en" : ""} warten` : ""}`;
-    if (!cfg.last) return "Gemeinsam · verbinde …";
+    const err = cfg.err || "";
+    if (!err && !cfg.last) return "Gemeinsam · verbinde …";
+    if (err === "key") return "Gemeinsam · Zugang abgelehnt – Verbindung im Cockpit prüfen";
+    if (err === "reach") return "Gemeinsam · Skript nicht erreichbar – Bereitstellung prüfen: Web-App, Zugriff „Jeder“";
+    if (err === "html") return "Gemeinsam · Skript antwortet nicht richtig – Bereitstellung prüfen: Web-App, Zugriff „Jeder“";
+    if (err.startsWith("http")) return `Gemeinsam · Skript-Fehler (${err.toUpperCase()}) – URL prüfen`;
+    if (err.startsWith("script")) return `Gemeinsam · Fehler im Skript: ${err.slice(8)}`;
+    if (err) return `Gemeinsam · offline${open ? ` · ${open} Änderung${open > 1 ? "en" : ""} warten` : ""}`;
     return `Gemeinsam · abgeglichen ${new Date(cfg.last).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
   }
   function renderSync() {
