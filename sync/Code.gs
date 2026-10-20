@@ -9,7 +9,10 @@ const FIRST = 4;   // erste Zeile mit einem Zugang (darüber: Web-App-URL und Ü
 
 // ---------- Tabelle: Menü und Blatt „Zugänge“ ----------
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu("Budget").addItem("Einrichten", "setup").addToUi();
+  SpreadsheetApp.getUi().createMenu("Budget")
+    .addItem("Einrichten", "setup")
+    .addItem("Links aktualisieren", "setup")
+    .addToUi();
 }
 
 function setup() {
@@ -27,20 +30,34 @@ function setup() {
   if (data.getLastRow() === 0) { data.appendRow(HEAD); data.setFrozenRows(1); }
 }
 
-// Name eingetragen → Schlüssel, Häkchen und Link ergänzen
+// Name eingetragen → Schlüssel, Häkchen und Link ergänzen; neue URL in B1 → alle Links neu
 function onEdit(e) {
   const sh = e.range.getSheet();
-  if (sh.getName() !== ACCESS || e.range.getColumn() !== 1 || e.range.getRow() < FIRST) return;
+  if (sh.getName() !== ACCESS) return;
+  if (e.range.getA1Notation() === "B1") { for (let r = FIRST; r <= sh.getLastRow(); r++) fillAccess(sh, r); return; }
+  if (e.range.getColumn() !== 1 || e.range.getRow() < FIRST) return;
   for (let r = e.range.getRow(); r <= e.range.getLastRow(); r++) fillAccess(sh, r);
 }
 
 function fillAccess(sh, r) {
   const name = String(sh.getRange(r, 1).getValue()).trim();
-  if (!name || sh.getRange(r, 4).getValue()) return;
-  sh.getRange(r, 4).setValue(Utilities.getUuid().replace(/-/g, ""));
-  sh.getRange(r, 2).insertCheckboxes().setValue(true);
-  sh.getRange(r, 3).setFormula(
-    `=IFERROR("${APP}#join=" & REGEXEXTRACT($B$1, "/s/([^/]+)/exec") & "." & D${r} & "." & ENCODEURL(A${r}), "erst oben die Web-App-URL einfügen")`);
+  if (!name) return;
+  let key = String(sh.getRange(r, 4).getValue()).trim();
+  if (!key) {
+    key = Utilities.getUuid().replace(/-/g, "");
+    sh.getRange(r, 4).setValue(key);
+    sh.getRange(r, 2).insertCheckboxes().setValue(true);
+  }
+  sh.getRange(r, 3).setValue(linkFor(String(sh.getRange("B1").getValue()), key, name));
+}
+
+// Link aus der Web-App-URL (…/macros/s/<ID>/exec) bauen – mit verständlichem Hinweis bei falscher URL
+function linkFor(url, key, name) {
+  if (/\/macros\/library\//.test(url)) return "B1 ist eine Bibliotheks-URL – bitte als Web-App bereitstellen";
+  if (/\/dev(\?|$)/.test(url)) return "B1 endet auf /dev – bitte die URL mit /exec nehmen";
+  const m = url.match(/\/macros\/(?:u\/\d+\/)?s\/([\w-]+)\/exec/);
+  if (!m) return "erst oben in B1 die Web-App-URL (…/exec) einfügen";
+  return `${APP}#join=${m[1]}.${key}.${encodeURIComponent(name)}`;
 }
 
 // ---------- Web-App ----------
