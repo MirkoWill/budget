@@ -483,7 +483,7 @@
       // Fehler genau benennen, damit die Einrichtung prüfbar ist
       let res, r;
       try {
-        res = await fetch(cfg.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+        res = await fetch(cleanUrl(cfg.url), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
       } catch (e) { throw new Error(navigator.onLine && !cfg.last ? "reach" : "offline"); }   // nach erstem Erfolg: Funkloch
       if (!res.ok) throw new Error(`http ${res.status}`);
       try { r = JSON.parse(await res.text()); } catch (e) { throw new Error("html"); }
@@ -536,6 +536,8 @@
     $("syncActive").hidden = !on;
     if (on) $("syncInfo").textContent = `${syncText()}${data.sync.me ? ` · du bist „${data.sync.me}“` : ""}.`;
   }
+  // Bei mehreren Google-Konten kopiert der Browser …/macros/u/1/s/…/exec – das schlägt fehl
+  const cleanUrl = (url) => url.replace(/\/macros\/u\/\d+\//, "/macros/");
   const b64 = (str) => btoa(unescape(encodeURIComponent(str)));
   const unb64 = (str) => decodeURIComponent(escape(atob(str)));
   function startSync(cfg) {
@@ -545,7 +547,7 @@
     for (const e of data.entries) { if (!e.w && cfg.me) e.w = cfg.me; mark(e, false); }
   }
   $("syncConnect").addEventListener("click", () => {
-    const url = $("syncUrl").value.trim();
+    const url = cleanUrl($("syncUrl").value.trim());
     if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) { toast("Bitte die Web-App-URL (…/exec) aus Apps Script einfügen."); return; }
     const key = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, "0")).join("");
     startSync({ url, key, me: $("syncMe").value.trim(), init: true });
@@ -553,7 +555,7 @@
     store(); render(); sync();
   });
   $("syncInvite").addEventListener("click", async () => {
-    const link = `${location.origin}${location.pathname}#join=${b64(JSON.stringify({ u: data.sync.url, k: data.sync.key, n: $("inviteName").value.trim() }))}`;
+    const link = `${location.origin}${location.pathname}#join=${b64(JSON.stringify({ u: cleanUrl(data.sync.url), k: data.sync.key, n: $("inviteName").value.trim() }))}`;
     const text = "Unser gemeinsames Budget – Link öffnen, dann „Zum Startbildschirm hinzufügen“:";
     try {
       if (navigator.share) { await navigator.share({ title: "Budget", text, url: link }); return; }

@@ -33,7 +33,8 @@ Die Ausgaben landen in einer Google-Tabelle in deinem Google Drive. Ein kleines 
    - Zugriff: **Jeder**
 5. **Bereitstellen**, Google fragt nach Berechtigungen → mit deinem Konto erlauben
    (bei „Google hat diese App nicht überprüft“: *Erweitert → Zu … wechseln*; es ist dein eigenes Skript).
-6. Die **Web-App-URL** (endet auf `/exec`) kopieren.
+6. Die **Web-App-URL** (endet auf `/exec`) kopieren. Zum Test im Browser öffnen: es muss „Budget-Sync läuft ✓“ erscheinen.
+   (Steht darin `/macros/u/1/…`, korrigiert die App das selbst.)
 7. In der Budget-App **Cockpit → Gemeinsam nutzen**: URL einfügen, deinen Namen eintragen, **Verbinden**.
    Deine bisherigen Einträge und Einstellungen werden hochgeladen.
 8. Unter **Einladen** den Namen (z. B. Tetiana) eintragen und **Einladungslink senden** – z. B. per WhatsApp.
