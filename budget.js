@@ -477,7 +477,6 @@
     const put = Object.values(data.pending);
     const su = data.su;
     const body = { key: cfg.key, put: put.map((p) => ({ ...p, c: catLabel(p.c) })) };
-    if (cfg.init) body.init = true;
     if (data.sDirty) { body.settings = Object.fromEntries(SETTINGS.map((k) => [k, data[k]])); body.su = su; }
     try {
       // Fehler genau benennen, damit die Einrichtung prüfbar ist
@@ -487,15 +486,18 @@
       } catch (e) { throw new Error(navigator.onLine && !cfg.last ? "reach" : "offline"); }   // nach erstem Erfolg: Funkloch
       if (!res.ok) throw new Error(`http ${res.status}`);
       try { r = JSON.parse(await res.text()); } catch (e) { throw new Error("html"); }
-      if (r.error) throw new Error(r.error === "key" ? "key" : `script: ${r.error}`);
+      if (r.error) throw new Error(r.error === "key" || r.error === "inactive" ? r.error : `script: ${r.error}`);
       if (data.sync === cfg) {
         // Übertragenes abhaken, außer es wurde währenddessen erneut geändert
         for (const x of put) if (data.pending[x.id] && data.pending[x.id].u === x.u) delete data.pending[x.id];
         if (body.settings && data.su === su) data.sDirty = false;
-        if (!data.sDirty && r.settings && r.su > (data.su || 0)) {
+        // Nach dem Verbinden gilt einmalig der Stand der Tabelle, danach die jüngere Änderung
+        if (r.settings && (cfg.fresh || (!data.sDirty && r.su > (data.su || 0)))) {
           for (const k of SETTINGS) if (r.settings[k] != null) data[k] = r.settings[k];
           data.su = r.su;
+          data.sDirty = false;
         }
+        delete cfg.fresh;
         // Stand der Tabelle + eigene, noch offene Änderungen
         const all = new Map(r.entries.map((e) => [e.id, { id: e.id, t: e.t, a: e.a, c: catId(e.c), ...(e.n ? { n: e.n } : {}), ...(e.w ? { w: e.w } : {}) }]));
         for (const p of Object.values(data.pending)) {
@@ -503,7 +505,7 @@
           else { const { u, ...e } = p; all.set(p.id, e); }
         }
         data.entries = [...all.values()];
-        delete cfg.init;
+        if (r.me) cfg.me = r.me;   // Name laut Tabelle
         cfg.last = Date.now();
         cfg.err = "";
       }
@@ -522,7 +524,8 @@
     const open = Object.keys(data.pending).length + (data.sDirty ? 1 : 0);
     const err = cfg.err || "";
     if (!err && !cfg.last) return "Gemeinsam · verbinde …";
-    if (err === "key") return "Gemeinsam · Zugang abgelehnt – Verbindung im Cockpit prüfen";
+    if (err === "key") return "Gemeinsam · Zugang unbekannt – Link aus der Tabelle neu öffnen";
+    if (err === "inactive") return "Gemeinsam · Zugang ist in der Tabelle deaktiviert";
     if (err === "reach") return "Gemeinsam · Skript nicht erreichbar – Bereitstellung prüfen: Web-App, Zugriff „Jeder“";
     if (err === "html") return "Gemeinsam · Skript antwortet nicht richtig – Bereitstellung prüfen: Web-App, Zugriff „Jeder“";
     if (err.startsWith("http")) return `Gemeinsam · Skript-Fehler (${err.toUpperCase()}) – URL prüfen`;
@@ -538,32 +541,32 @@
   }
   // Bei mehreren Google-Konten kopiert der Browser …/macros/u/1/s/…/exec – das schlägt fehl
   const cleanUrl = (url) => url.replace(/\/macros\/u\/\d+\//, "/macros/");
-  const b64 = (str) => btoa(unescape(encodeURIComponent(str)));
-  const unb64 = (str) => decodeURIComponent(escape(atob(str)));
-  function startSync(cfg) {
-    data.sync = cfg;
+  // Zugangslink aus dem Blatt „Zugänge“: …#join=<Skript-ID>.<Schlüssel>.<Name>
+  function parseJoin(text) {
+    const m = String(text).match(/#join=([\w-]+)\.([0-9a-f]{16,})\.([^\s]*)/);
+    if (!m) return null;
+    let name = "";
+    try { name = decodeURIComponent(m[3]); } catch (e) { name = m[3]; }
+    return { url: `https://script.google.com/macros/s/${m[1]}/exec`, key: m[2], me: name.trim() };
+  }
+  function join(cfg) {
+    if (data.sync && data.sync.key === cfg.key) { sync(); return; }
+    data.sync = { ...cfg, fresh: true };
     data.pending = {};
     // eigene bisherigen Einträge kommen in den gemeinsamen Topf
     for (const e of data.entries) { if (!e.w && cfg.me) e.w = cfg.me; mark(e, false); }
+    // Budget/Stichtag dieses Geräts landen nur in der Tabelle, wenn sie noch keine hat (su = 1 verliert sonst)
+    data.su = data.budget ? 1 : 0;
+    data.sDirty = !!data.budget;
+    store();
+    toast(`Verbunden${cfg.me ? ` als ${cfg.me}` : ""} ✓`);
+    render(); sync();
   }
   $("syncConnect").addEventListener("click", () => {
-    const url = cleanUrl($("syncUrl").value.trim());
-    if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) { toast("Bitte die Web-App-URL (…/exec) aus Apps Script einfügen."); return; }
-    const key = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, "0")).join("");
-    startSync({ url, key, me: $("syncMe").value.trim(), init: true });
-    touchSettings();
-    store(); render(); sync();
-  });
-  $("syncInvite").addEventListener("click", async () => {
-    const link = `${location.origin}${location.pathname}#join=${b64(JSON.stringify({ u: cleanUrl(data.sync.url), k: data.sync.key, n: $("inviteName").value.trim() }))}`;
-    const text = "Unser gemeinsames Budget – Link öffnen, dann „Zum Startbildschirm hinzufügen“:";
-    try {
-      if (navigator.share) { await navigator.share({ title: "Budget", text, url: link }); return; }
-    } catch (e) {
-      if (e && e.name === "AbortError") return;
-    }
-    try { await navigator.clipboard.writeText(`${text} ${link}`); toast("Einladungslink kopiert ✓"); }
-    catch (e) { prompt("Diesen Link weitergeben:", link); }
+    const cfg = parseJoin($("syncLink").value);
+    if (!cfg) { toast("Bitte den Link aus der Spalte „Link zum Verschicken“ einfügen."); return; }
+    $("syncLink").value = "";
+    join(cfg);
   });
   $("syncNow").addEventListener("click", () => { sync(); toast("Gleiche ab …"); });
   $("syncDisconnect").addEventListener("click", () => {
@@ -571,21 +574,12 @@
     data.sync = null; data.pending = {}; data.sDirty = false;
     store(); render();
   });
-  // Einladungslink #join=… übernehmen
+  // Zugangslink beim Öffnen übernehmen
   function joinFromHash() {
-    const m = location.hash.match(/^#join=(.+)$/);
-    if (!m) return;
+    if (!location.hash.startsWith("#join=")) return;
+    const cfg = parseJoin(location.hash);
     history.replaceState(null, "", location.pathname + location.search);
-    try {
-      const j = JSON.parse(unb64(decodeURIComponent(m[1])));
-      if (!j.u || !j.k) throw new Error();
-      if (data.sync && data.sync.key === j.k) return;
-      const me = (prompt("Dein Name (steht bei deinen Einträgen):", j.n || "") ?? j.n ?? "").trim();
-      startSync({ url: j.u, key: j.k, me });
-      data.su = 0; data.sDirty = false;   // Budget und Stichtag kommen aus der Tabelle
-      store();
-      toast("Mit dem gemeinsamen Budget verbunden ✓");
-    } catch (e) { toast("Der Einladungslink ist ungültig."); }
+    if (cfg) join(cfg); else toast("Der Zugangslink ist ungültig.");
   }
 
   // ---------- Toast ----------
@@ -626,7 +620,7 @@
     history.replaceState(null, "", location.pathname + location.search);
     route();
   });
-  window.addEventListener("hashchange", route);
+  window.addEventListener("hashchange", () => { joinFromHash(); route(); });   // Link bei bereits offener App
   window.addEventListener("resize", () => { if (isCockpit()) render(); });
   // Neuer Tag/Zeitraum, während die App offen bleibt
   // Neue Einträge des anderen holen: beim Öffnen, bei Netz und jede Minute

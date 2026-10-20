@@ -131,30 +131,22 @@
     <section class="card">
       <h2>Gemeinsam nutzen</h2>
       <div id="syncSetup">
-        <p class="muted">Mit einer Google-Tabelle als gemeinsamem Speicher erfasst ihr beide in denselben Topf.
-          <a href="https://github.com/MirkoWill/budget#gemeinsam-nutzen" target="_blank" rel="noopener">Anleitung zur Einrichtung</a></p>
+        <p class="muted">Mit einer Google-Tabelle als gemeinsamem Speicher erfasst ihr in denselben Topf. Den Zugangslink
+          bekommst du aus der Tabelle (Blatt „Zugänge“) – einfach antippen, oder hier einfügen.
+          <a href="https://github.com/MirkoWill/budget#gemeinsam-nutzen" target="_blank" rel="noopener">Anleitung</a></p>
         <div class="form">
-          <label>Web-App-URL des Skripts
-            <span class="field"><input id="syncUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></span>
-          </label>
-          <label>Dein Name
-            <span class="field"><input id="syncMe" type="text" maxlength="20" autocomplete="off" placeholder="z. B. Mirko"></span>
+          <label>Zugangslink
+            <span class="field"><input id="syncLink" type="url" inputmode="url" autocomplete="off" placeholder="https://mirkowill.github.io/budget/#join=…"></span>
           </label>
         </div>
         <button class="btn" id="syncConnect" type="button">Verbinden</button>
       </div>
       <div id="syncActive" hidden>
         <p class="muted" id="syncInfo"></p>
-        <div class="form">
-          <label>Einladen
-            <span class="field"><input id="inviteName" type="text" maxlength="20" autocomplete="off" placeholder="Name, z. B. Tetiana"></span>
-          </label>
-        </div>
         <div class="btnrow">
-          <button class="btn" id="syncInvite" type="button">Einladungslink senden</button>
           <button class="btn" id="syncNow" type="button">Jetzt abgleichen</button>
+          <button class="btn btn--danger" id="syncDisconnect" type="button">Trennen</button>
         </div>
-        <button class="btn btn--danger" id="syncDisconnect" type="button">Verbindung trennen</button>
       </div>
     </section>
 
@@ -173,6 +165,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button id="toastUndo" type="button">Rückgängig</button></div>
   <div class="tip" id="tip" hidden></div>
 
-  <script src="budget.js?v=6"></script>
+  <script src="budget.js?v=7"></script>
 </body>
 </html>
